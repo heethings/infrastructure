@@ -46,7 +46,7 @@ test_ssh_connection() {
     
     # Try SSH with verbose output for debugging
     echo -e "${YELLOW}Attempting SSH connection...${NC}"
-    if ssh -v -o BatchMode=yes -o ConnectTimeout=5 $SSH_USER@${node} 'echo "SSH connection successful" 2>&1'; then
+    if su - $SSH_USER -c "ssh -v -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 $node 'echo \"SSH connection successful\"' 2>&1"; then
         echo -e "${GREEN}✓ Successfully connected to ${node}${NC}"
         return 0
     else
@@ -71,7 +71,7 @@ test_ssh_connection() {
         
         # Try to connect with more verbose output
         echo -e "\n${YELLOW}Detailed connection attempt:${NC}"
-        ssh -vvv -o BatchMode=yes -o ConnectTimeout=5 $SSH_USER@${node} 'echo 2>&1' || true
+        su - $SSH_USER -c "ssh -vvv -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 $node 'echo 2>&1'" || true
         
         return 1
     fi
