@@ -87,4 +87,4 @@ check_ssh_key
 echo -e "\n${GREEN}Your SSH public key:${NC}"
 cat $SSH_KEY_PATH/id_rsa.pub
 echo -e "\n${GREEN}Run this command on secondary nodes:${NC}"
-echo "curl -sSL https://raw.githubusercontent.com/heethings/infrastructure/main/haproxy/setup-secondary.sh | sudo bash -s -- 'PASTE_SSH_KEY_HERE'"
+echo "curl -sSL https://raw.githubusercontent.com/heethings/infrastructure/refs/heads/main/setup-secondary.sh | sudo bash -s -- 'PASTE_SSH_KEY_HERE'"
