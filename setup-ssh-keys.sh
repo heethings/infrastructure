@@ -44,9 +44,21 @@ test_ssh_connection() {
         return 1
     fi
     
+    # Create known_hosts file if it doesn't exist
+    if [ ! -f "$SSH_KEY_PATH/known_hosts" ]; then
+        touch "$SSH_KEY_PATH/known_hosts"
+        chown $SSH_USER:$SSH_USER "$SSH_KEY_PATH/known_hosts"
+        chmod 644 "$SSH_KEY_PATH/known_hosts"
+    fi
+    
     # Try SSH with verbose output for debugging
     echo -e "${YELLOW}Attempting SSH connection...${NC}"
-    if su - $SSH_USER -c "ssh -v -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 $node 'echo \"SSH connection successful\"' 2>&1"; then
+    
+    # Construct the SSH command with proper options
+    SSH_CMD="ssh -v -o UserKnownHostsFile=$SSH_KEY_PATH/known_hosts -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 -i $SSH_KEY_PATH/id_rsa $node 'echo \"SSH connection successful\"'"
+    
+    # Run the SSH command as haproxy user
+    if su - $SSH_USER -c "$SSH_CMD" 2>&1; then
         echo -e "${GREEN}✓ Successfully connected to ${node}${NC}"
         return 0
     else
@@ -66,12 +78,19 @@ test_ssh_connection() {
             local key_perms=$(stat -c "%a" "$SSH_KEY_PATH/id_rsa")
             if [ "$key_perms" != "600" ]; then
                 echo -e "${RED}- Incorrect permissions on private key ($key_perms). Should be 600.${NC}"
+                chmod 600 "$SSH_KEY_PATH/id_rsa"
+                echo -e "${GREEN}- Fixed private key permissions${NC}"
             fi
         fi
         
         # Try to connect with more verbose output
         echo -e "\n${YELLOW}Detailed connection attempt:${NC}"
-        su - $SSH_USER -c "ssh -vvv -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 $node 'echo 2>&1'" || true
+        SSH_DEBUG_CMD="ssh -vvv -o UserKnownHostsFile=$SSH_KEY_PATH/known_hosts -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 -i $SSH_KEY_PATH/id_rsa $node 'echo 2>&1'"
+        su - $SSH_USER -c "$SSH_DEBUG_CMD" || true
+        
+        # Show authorized_keys content on remote host
+        echo -e "\n${YELLOW}Checking authorized_keys on remote host:${NC}"
+        ssh -o StrictHostKeyChecking=no -o BatchMode=yes root@$node "cat /home/$SSH_USER/.ssh/authorized_keys" || echo -e "${RED}Could not check remote authorized_keys${NC}"
         
         return 1
     fi
