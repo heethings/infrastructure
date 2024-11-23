@@ -1,12 +1,12 @@
 #!/bin/bash
 
+# Default values
+DEFAULT_SSH_USER="haproxy"
+DEFAULT_NODES=("10.0.0.12" "10.0.0.13")
+
 # Configuration
-SSH_USER="haproxy"
-SSH_KEY_PATH="/home/$SSH_USER/.ssh"
-NODES=(
-    "10.0.0.12"  # Second HAProxy node
-    "10.0.0.13"  # Third HAProxy node
-)
+SSH_USER="$DEFAULT_SSH_USER"
+NODES=("${DEFAULT_NODES[@]}")
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -16,10 +16,15 @@ NC='\033[0m' # No Color
 
 # Help message
 usage() {
-    echo "Usage: $0 [-h|--help] [-t|--test]"
+    echo "Usage: $0 [-h|--help] [-t|--test] [-u|--user SSH_USER] [-n|--nodes 'node1 node2 ...']"
     echo "Options:"
-    echo "  -h, --help    Show this help message"
-    echo "  -t, --test    Test SSH connections to secondary nodes"
+    echo "  -h, --help              Show this help message"
+    echo "  -t, --test              Test SSH connections to secondary nodes"
+    echo "  -u, --user SSH_USER     Specify the SSH user (default: $DEFAULT_SSH_USER)"
+    echo "  -n, --nodes 'NODES'     Space-separated list of nodes (default: ${DEFAULT_NODES[*]})"
+    echo
+    echo "Example:"
+    echo "  $0 --user myuser --nodes '192.168.1.10 192.168.1.11'"
     exit 1
 }
 
@@ -57,7 +62,7 @@ test_ssh_connection() {
     # Construct the SSH command with proper options
     SSH_CMD="ssh -v -o UserKnownHostsFile=$SSH_KEY_PATH/known_hosts -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 -i $SSH_KEY_PATH/id_rsa $node 'echo \"SSH connection successful\"'"
     
-    # Run the SSH command as haproxy user
+    # Run the SSH command as the specified user
     if su - $SSH_USER -c "$SSH_CMD" 2>&1; then
         echo -e "${GREEN}✓ Successfully connected to ${node}${NC}"
         return 0
@@ -149,7 +154,7 @@ test_all_connections() {
         echo -e "${YELLOW}Common solutions:${NC}"
         echo "1. Verify that setup-secondary.sh was run successfully on the secondary nodes"
         echo "2. Check that the SSH key was properly copied to the secondary nodes"
-        echo "3. Verify that the haproxy user exists and has proper permissions on secondary nodes"
+        echo "3. Verify that the $SSH_USER user exists and has proper permissions on secondary nodes"
         echo "4. Check network connectivity between nodes"
         echo -e "\nTo verify the setup on secondary nodes, run these commands on each node:"
         echo "sudo ls -la /home/$SSH_USER/.ssh/authorized_keys"
@@ -166,25 +171,41 @@ while [[ $# -gt 0 ]]; do
             usage
             ;;
         -t|--test)
-            test_all_connections
+            DO_TEST=1
+            shift
+            ;;
+        -u|--user)
+            SSH_USER="$2"
+            shift 2
+            ;;
+        -n|--nodes)
+            IFS=' ' read -r -a NODES <<< "$2"
+            shift 2
             ;;
         *)
             echo -e "${RED}Unknown option: $1${NC}"
             usage
             ;;
     esac
-    shift
 done
 
-# Check if haproxy user exists
+# Update SSH_KEY_PATH based on SSH_USER
+SSH_KEY_PATH="/home/$SSH_USER/.ssh"
+
+# If test flag is set, run tests and exit
+if [ -n "$DO_TEST" ]; then
+    test_all_connections
+fi
+
+# Check if the specified user exists
 if ! id "$SSH_USER" &>/dev/null; then
-    echo -e "${GREEN}Creating haproxy user...${NC}"
+    echo -e "${GREEN}Creating $SSH_USER user...${NC}"
     # Create user with home directory and shell
     useradd -m -s /bin/bash $SSH_USER
     # Set password to disabled
     passwd -l $SSH_USER
 else
-    echo -e "${GREEN}Configuring existing haproxy user...${NC}"
+    echo -e "${GREEN}Configuring existing $SSH_USER user...${NC}"
 fi
 
 # Ensure home directory exists and has correct permissions
@@ -207,7 +228,7 @@ if [ ! -d "/etc/sudoers.d" ]; then
     chmod 750 /etc/sudoers.d
 fi
 
-# Create sudoers file for haproxy user
+# Create sudoers file for the specified user
 SUDOERS_FILE="/etc/sudoers.d/$SSH_USER"
 echo -e "${GREEN}Creating sudoers file: $SUDOERS_FILE${NC}"
 cat << EOF | sudo tee "$SUDOERS_FILE" > /dev/null
@@ -228,6 +249,6 @@ PUBLIC_KEY=$(cat $SSH_KEY_PATH/id_rsa.pub)
 echo -e "\n${GREEN}Your SSH public key:${NC}"
 echo "$PUBLIC_KEY"
 echo -e "\n${GREEN}Run this command on secondary nodes:${NC}"
-echo "curl -sSL https://raw.githubusercontent.com/heethings/infrastructure/refs/heads/main/setup-secondary.sh | sudo bash -s -- '$(echo "$PUBLIC_KEY")'"
+echo "curl -sSL https://raw.githubusercontent.com/heethings/infrastructure/refs/heads/main/setup-secondary.sh | sudo bash -s -- '$SSH_USER' '$PUBLIC_KEY'"
 echo -e "\n${YELLOW}After setting up secondary nodes, test the connections with:${NC}"
-echo "$0 --test"
+echo "$0 --test --user $SSH_USER --nodes '${NODES[*]}'"
