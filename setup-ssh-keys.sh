@@ -11,7 +11,17 @@ NODES=(
 # Colors for output
 GREEN='\033[0;32m'
 RED='\033[0;31m'
+YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# Help message
+usage() {
+    echo "Usage: $0 [-h|--help] [-t|--test]"
+    echo "Options:"
+    echo "  -h, --help    Show this help message"
+    echo "  -t, --test    Test SSH connections to secondary nodes"
+    exit 1
+}
 
 # Function to check if SSH key exists
 check_ssh_key() {
@@ -28,13 +38,49 @@ test_ssh_connection() {
     local node=$1
     echo -e "\nTesting connection to ${node}..."
     if ssh -o BatchMode=yes -o ConnectTimeout=5 $SSH_USER@${node} 'echo 2>&1' >/dev/null; then
-        echo -e "${GREEN}Successfully connected to ${node}${NC}"
+        echo -e "${GREEN}✓ Successfully connected to ${node}${NC}"
         return 0
     else
-        echo -e "${RED}Failed to connect to ${node}${NC}"
+        echo -e "${RED}✗ Failed to connect to ${node}${NC}"
         return 1
     fi
 }
+
+# Function to test all connections
+test_all_connections() {
+    local failed=0
+    echo -e "${YELLOW}Testing SSH connections to all secondary nodes...${NC}"
+    for node in "${NODES[@]}"; do
+        if ! test_ssh_connection "$node"; then
+            failed=1
+        fi
+    done
+    
+    if [ $failed -eq 0 ]; then
+        echo -e "\n${GREEN}All connections successful!${NC}"
+    else
+        echo -e "\n${RED}Some connections failed. Please check the configuration on failed nodes.${NC}"
+        echo -e "${YELLOW}Make sure you have run setup-secondary.sh with the correct SSH key on those nodes.${NC}"
+    fi
+    exit $failed
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            usage
+            ;;
+        -t|--test)
+            test_all_connections
+            ;;
+        *)
+            echo -e "${RED}Unknown option: $1${NC}"
+            usage
+            ;;
+    esac
+    shift
+done
 
 # Check if haproxy user exists
 if ! id "$SSH_USER" &>/dev/null; then
@@ -84,7 +130,10 @@ chmod 700 $SSH_KEY_PATH
 check_ssh_key
 
 # Get and output the public key
+PUBLIC_KEY=$(cat $SSH_KEY_PATH/id_rsa.pub)
 echo -e "\n${GREEN}Your SSH public key:${NC}"
-cat $SSH_KEY_PATH/id_rsa.pub
+echo "$PUBLIC_KEY"
 echo -e "\n${GREEN}Run this command on secondary nodes:${NC}"
-echo "curl -sSL https://raw.githubusercontent.com/heethings/infrastructure/refs/heads/main/setup-secondary.sh | sudo bash -s -- 'PASTE_SSH_KEY_HERE'"
+echo "curl -sSL https://raw.githubusercontent.com/heethings/infrastructure/refs/heads/main/setup-secondary.sh | sudo bash -s -- '$(echo "$PUBLIC_KEY")'"
+echo -e "\n${YELLOW}After setting up secondary nodes, test the connections with:${NC}"
+echo "$0 --test"
