@@ -33,15 +33,46 @@ check_ssh_key() {
     fi
 }
 
-# Function to test SSH connection
+# Function to test SSH connection with debugging
 test_ssh_connection() {
     local node=$1
     echo -e "\nTesting connection to ${node}..."
-    if ssh -o BatchMode=yes -o ConnectTimeout=5 $SSH_USER@${node} 'echo 2>&1' >/dev/null; then
+    
+    # Check if we can resolve the hostname
+    if ! ping -c 1 $node >/dev/null 2>&1; then
+        echo -e "${RED}✗ Cannot ping $node. Check if the node is reachable.${NC}"
+        return 1
+    fi
+    
+    # Try SSH with verbose output for debugging
+    echo -e "${YELLOW}Attempting SSH connection...${NC}"
+    if ssh -v -o BatchMode=yes -o ConnectTimeout=5 $SSH_USER@${node} 'echo "SSH connection successful" 2>&1'; then
         echo -e "${GREEN}✓ Successfully connected to ${node}${NC}"
         return 0
     else
-        echo -e "${RED}✗ Failed to connect to ${node}${NC}"
+        local exit_code=$?
+        echo -e "${RED}✗ Failed to connect to ${node} (Exit code: $exit_code)${NC}"
+        
+        # Check common issues
+        echo -e "\n${YELLOW}Checking for common issues:${NC}"
+        
+        # Check if private key exists
+        if [ ! -f "$SSH_KEY_PATH/id_rsa" ]; then
+            echo -e "${RED}- SSH private key not found at $SSH_KEY_PATH/id_rsa${NC}"
+        fi
+        
+        # Check key permissions
+        if [ -f "$SSH_KEY_PATH/id_rsa" ]; then
+            local key_perms=$(stat -c "%a" "$SSH_KEY_PATH/id_rsa")
+            if [ "$key_perms" != "600" ]; then
+                echo -e "${RED}- Incorrect permissions on private key ($key_perms). Should be 600.${NC}"
+            fi
+        fi
+        
+        # Try to connect with more verbose output
+        echo -e "\n${YELLOW}Detailed connection attempt:${NC}"
+        ssh -vvv -o BatchMode=yes -o ConnectTimeout=5 $SSH_USER@${node} 'echo 2>&1' || true
+        
         return 1
     fi
 }
@@ -50,6 +81,42 @@ test_ssh_connection() {
 test_all_connections() {
     local failed=0
     echo -e "${YELLOW}Testing SSH connections to all secondary nodes...${NC}"
+    
+    # First, check local SSH setup
+    echo -e "\n${YELLOW}Checking local SSH configuration:${NC}"
+    if [ ! -d "$SSH_KEY_PATH" ]; then
+        echo -e "${RED}- SSH directory not found at $SSH_KEY_PATH${NC}"
+        failed=1
+    else
+        echo -e "${GREEN}- SSH directory exists${NC}"
+        
+        # Check SSH directory permissions
+        local dir_perms=$(stat -c "%a" "$SSH_KEY_PATH")
+        if [ "$dir_perms" != "700" ]; then
+            echo -e "${RED}- Incorrect permissions on $SSH_KEY_PATH ($dir_perms). Should be 700.${NC}"
+            failed=1
+        else
+            echo -e "${GREEN}- SSH directory permissions correct${NC}"
+        fi
+        
+        # Check key existence and permissions
+        if [ -f "$SSH_KEY_PATH/id_rsa" ]; then
+            echo -e "${GREEN}- Private key exists${NC}"
+            local key_perms=$(stat -c "%a" "$SSH_KEY_PATH/id_rsa")
+            if [ "$key_perms" != "600" ]; then
+                echo -e "${RED}- Incorrect permissions on private key ($key_perms). Should be 600.${NC}"
+                chmod 600 "$SSH_KEY_PATH/id_rsa"
+                echo -e "${GREEN}- Fixed private key permissions${NC}"
+            else
+                echo -e "${GREEN}- Private key permissions correct${NC}"
+            fi
+        else
+            echo -e "${RED}- Private key not found${NC}"
+            failed=1
+        fi
+    fi
+    
+    # Test connections to each node
     for node in "${NODES[@]}"; do
         if ! test_ssh_connection "$node"; then
             failed=1
@@ -59,8 +126,16 @@ test_all_connections() {
     if [ $failed -eq 0 ]; then
         echo -e "\n${GREEN}All connections successful!${NC}"
     else
-        echo -e "\n${RED}Some connections failed. Please check the configuration on failed nodes.${NC}"
-        echo -e "${YELLOW}Make sure you have run setup-secondary.sh with the correct SSH key on those nodes.${NC}"
+        echo -e "\n${RED}Some connections failed. Please check the above error messages.${NC}"
+        echo -e "${YELLOW}Common solutions:${NC}"
+        echo "1. Verify that setup-secondary.sh was run successfully on the secondary nodes"
+        echo "2. Check that the SSH key was properly copied to the secondary nodes"
+        echo "3. Verify that the haproxy user exists and has proper permissions on secondary nodes"
+        echo "4. Check network connectivity between nodes"
+        echo -e "\nTo verify the setup on secondary nodes, run these commands on each node:"
+        echo "sudo ls -la /home/$SSH_USER/.ssh/authorized_keys"
+        echo "sudo cat /home/$SSH_USER/.ssh/authorized_keys"
+        echo "sudo systemctl status sshd"
     fi
     exit $failed
 }
