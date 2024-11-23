@@ -1,0 +1,21 @@
+[Unit]
+Description=HAProxy Certificate Manager
+After=network-online.target haproxy.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/cert-manager.sh
+User=root
+Group=root
+StandardOutput=append:/var/log/haproxy/cert-manager/service.log
+StandardError=append:/var/log/haproxy/cert-manager/service.log
+
+# Security settings
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
