@@ -56,14 +56,11 @@ test_ssh_connection() {
         chmod 644 "$SSH_KEY_PATH/known_hosts"
     fi
     
-    # Try SSH with verbose output for debugging
-    echo -e "${YELLOW}Attempting SSH connection...${NC}"
-    
-    # Construct the SSH command with proper options
-    SSH_CMD="ssh -v -o UserKnownHostsFile=$SSH_KEY_PATH/known_hosts -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 -i $SSH_KEY_PATH/id_rsa $node 'echo \"SSH connection successful\"'"
+    # First try a quiet connection
+    SSH_CMD="ssh -q -o UserKnownHostsFile=$SSH_KEY_PATH/known_hosts -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 -i $SSH_KEY_PATH/id_rsa $node 'echo 2>/dev/null'"
     
     # Run the SSH command as the specified user
-    if su - $SSH_USER -c "$SSH_CMD" 2>&1; then
+    if su - $SSH_USER -c "$SSH_CMD" >/dev/null 2>&1; then
         echo -e "${GREEN}✓ Successfully connected to ${node}${NC}"
         return 0
     else
@@ -88,14 +85,14 @@ test_ssh_connection() {
             fi
         fi
         
-        # Try to connect with more verbose output
+        # Try to connect with verbose output only on failure
         echo -e "\n${YELLOW}Detailed connection attempt:${NC}"
         SSH_DEBUG_CMD="ssh -vvv -o UserKnownHostsFile=$SSH_KEY_PATH/known_hosts -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 -i $SSH_KEY_PATH/id_rsa $node 'echo 2>&1'"
-        su - $SSH_USER -c "$SSH_DEBUG_CMD" || true
+        su - $SSH_USER -c "$SSH_DEBUG_CMD" 2>&1 | grep -v "debug1: " | grep -v "debug2: " || true
         
-        # Show authorized_keys content on remote host
+        # Show authorized_keys content on remote host if root access is available
         echo -e "\n${YELLOW}Checking authorized_keys on remote host:${NC}"
-        ssh -o StrictHostKeyChecking=no -o BatchMode=yes root@$node "cat /home/$SSH_USER/.ssh/authorized_keys" || echo -e "${RED}Could not check remote authorized_keys${NC}"
+        ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 root@$node "cat /home/$SSH_USER/.ssh/authorized_keys" 2>/dev/null || echo -e "${RED}Could not check remote authorized_keys (requires root access)${NC}"
         
         return 1
     fi
